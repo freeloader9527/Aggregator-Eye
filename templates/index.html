@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aggregator-Eye - 自动化资产测绘中心</title>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4/dist/socket.io.min.js"></script>
+    <script>window.Vue || document.write('<script src="https://cdn.bootcdn.net/ajax/libs/vue/3.4.21/vue.global.prod.min.js"><\/script>')</script>
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");
+
+        :root {
+            --bg-body: #0b0d11;
+            --bg-header: rgba(15, 18, 24, 0.7);
+            --bg-console: linear-gradient(135deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.08) 100%);
+            --bg-workspace: transparent;
+            --bg-terminal: #080a0e;
+            --border-ui: rgba(255, 255, 255, 0.15);
+            --accent-blue: #007aff;
+            --accent-purple: #af52de;
+            --accent-emerald: #34c759;
+            --text-main: #ffffff;
+            --text-muted: rgba(255, 255, 255, 0.5);
+            --radius-ui: 24px;
+            --glass-blur: blur(50px);
+            --mesh-opacity: 0.8;
+        }
+
+        .light-theme {
+            --bg-body: #f5f7fa;
+            --bg-header: rgba(255, 255, 255, 0.8);
+            --bg-console: rgba(255, 255, 255, 0.6);
+            --bg-terminal: #05070a;
+            --border-ui: rgba(0, 0, 0, 0.08);
+            --text-main: #1d1d1f;
+            --text-muted: rgba(0, 0, 0, 0.5);
+            --mesh-opacity: 0.25;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            transition: background-color 0.4s ease, color 0.4s ease;
+        }
+
+        /* 1. Global Container */
+        .global-container {
+            display: flex;
+            flex-direction: column;
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* 2. Top Header (60px) */
+        .top-header {
+            height: 60px;
+            min-height: 60px;
+            width: 100%;
+            border-bottom: 1px solid var(--border-ui);
+            background: var(--bg-header);
+            backdrop-filter: var(--glass-blur);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            z-index: 100;
+        }
+
+        .header-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-logo .logo-box {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 15px rgba(10, 132, 255, 0.3);
+        }
+
+        /* 3. Bottom Dashboard (The split layout) */
+        .bottom-dashboard {
+            flex: 1;
+            display: flex;
+            flex-direction: row;
+            min-height: 0;
+        }
+
+        /* Left Control Console (Fixed 300px) */
+        .left-control-console {
+            width: 300px;
+            min-width: 300px;
+            border-right: 1px solid var(--border-ui);
+            background: linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.05) 100%);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 24px;
+            gap: 24px;
+            box-shadow: 10px 0 30px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Right Main Workspace (Flex 1) */
+        .right-main-workspace {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            background: var(--bg-workspace);
+        }
+
+        /* Top Data Canvas (65%) */
+        .top-data-canvas {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            padding: 24px;
+            overflow-y: auto;
+        }
+
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        /* Bottom Log Terminal (35%) */
+        .bottom-log-terminal {
+            height: 32%;
+            border-top: 1px solid var(--border-ui);
+            background: #080a0f;
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+        }
+
+        /* Inner styling */
+        .terminal-header {
+            height: 36px;
+            padding: 0 20px;
+            background: rgba(255, 255, 255, 0.02);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-ui);
+        }
+
+        .terminal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 24px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 0.72rem;
+            line-height: 1.6;
+            color: #888;
+        }
+
+        /* Components adapted to new layout */
+        .console-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .console-label {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        .stat-card-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            flex-shrink: 0;
+        }
+
+        .stat-capsule {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.02) 100%);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border-ui);
+            border-radius: var(--radius-ui);
+            padding: 18px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 12px 35px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255,255,255,0.05);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .stat-capsule:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.3), 0 0 20px rgba(100, 116, 139, 0.15);
+        }
+
+        .stat-capsule h4 {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .stat-capsule h2 {
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+
+        .mesh-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            filter: blur(100px);
+            opacity: var(--mesh-opacity);
+            pointer-events: none;
+            transition: opacity 0.4s;
+        }
+
+        .ball {
+            position: absolute;
+            border-radius: 50%;
+        }
+
+        .b1 {
+            width: 1000px;
+            height: 1000px;
+            background: radial-gradient(circle, var(--accent-blue), transparent);
+            top: -200px;
+            left: -200px;
+            mix-blend-mode: screen;
+            opacity: 0.9;
+        }
+
+        .b2 {
+            width: 900px;
+            height: 900px;
+            background: radial-gradient(circle, var(--accent-purple), transparent);
+            bottom: -150px;
+            right: -150px;
+            mix-blend-mode: screen;
+            opacity: 0.9;
+        }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border-ui);
+            border-radius: var(--radius-ui);
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(134, 134, 139, 0.3);
+            border-radius: 4px;
+        }
+
+        /* Sidebar & Components adapted to new layout */
+        .switch {
+            position: relative;
+            width: 36px;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            transition: 0.3s;
+            cursor: pointer;
+        }
+
+        .switch::after {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: white;
+            top: 2px;
+            left: 2px;
+            transition: 0.3s;
+        }
+
+        .switch.on {
+            background: var(--accent-blue);
+        }
+
+        .switch.on::after {
+            left: 18px;
+        }
+
+        .list-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-ui);
+            cursor: pointer;
+            transition: 0.2s;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .list-item:hover {
+            background: rgba(0, 0, 0, 0.03);
+        }
+
+        .list-content {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .item-keyword {
+            font-size: 0.65rem;
+            font-weight: 800;
+            color: var(--accent-blue);
+            opacity: 0.8;
+            text-transform: uppercase;
+        }
+
+        .item-name {
+            font-size: 0.85rem;
+            color: var(--text-main);
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .item-count-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .count-bar-bg {
+            flex: 1;
+            height: 4px;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .count-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+            border-radius: 2px;
+        }
+
+        .item-count {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            min-width: 30px;
+            text-align: right;
+        }
+
+        .stat-panel {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            background: linear-gradient(165deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 100%);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--border-ui);
+            border-radius: var(--radius-ui);
+            overflow: hidden;
+            box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(255,255,255,0.08);
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .stat-panel:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 0 30px rgba(100, 200, 255, 0.12), 0 0 60px rgba(139, 92, 246, 0.08), inset 0 0 0 1px rgba(255,255,255,0.12);
+        }
+
+        .light-theme .stat-panel:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2), inset 0 0 0 1px rgba(0,0,0,0.06);
+        }
+
+        .stat-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-ui);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .stat-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            opacity: 0.5;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* Toast — fixed top-right, slide in from right */
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+        .toast-enter-active, .toast-leave-active { transition: all 0.3s ease; }
+        .toast-enter-from, .toast-leave-to { opacity: 0; transform: translateX(30px); }
+        .toast { padding: 10px 18px; border-radius: 10px; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-size: 0.8rem; display: flex; align-items: center; gap: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); pointer-events: none; border: 1px solid var(--border-ui); background: rgba(30, 41, 59, 0.9); color: #f8fafc; }
+
+        /* 5. Drawer Styling */
+        .config-drawer-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.4); backdrop-filter: blur(10px); z-index: 1000; display: flex; justify-content: flex-end; }
+        .config-drawer-content { width: 450px; height: 100%; background: var(--bg-console); backdrop-filter: var(--glass-blur); border-left: 1px solid var(--border-ui); padding: 40px; display: flex; flex-direction: column; gap: 30px; box-shadow: -20px 0 50px rgba(0,0,0,0.3); }
+        .drawer-header { display: flex; justify-content: space-between; align-items: center; }
+        .drawer-header h2 { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.03em; }
+        .config-section { display: flex; flex-direction: column; gap: 10px; }
+        .config-section label { font-size: 0.7rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; }
+        .config-section textarea, .config-section input { background: rgba(255,255,255,0.03); border: 1px solid var(--border-ui); border-radius: 12px; padding: 14px; color: var(--text-main); font-size: 0.85rem; outline: none; }
+        .config-section textarea { height: 120px; resize: none; }
+        .btn-save { padding: 16px; background: var(--accent-emerald); border: none; border-radius: 12px; color: white; font-weight: 700; cursor: pointer; margin-top: 20px; box-shadow: 0 8px 20px rgba(48, 209, 88, 0.2); }
+        
+        .drawer-enter-active, .drawer-leave-active { transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
+        .drawer-enter-from, .drawer-leave-to { transform: translateX(100%); }
+    </style>
+</head>
+
+<body>
+    <div class="mesh-bg">
+        <div class="ball b1"></div>
+        <div class="ball b2"></div>
+    </div>
+
+    {% raw %}
+    <div id="app" class="global-container" v-cloak>
+        <!-- 1. Top Header (60px) -->
+        <header class="top-header">
+            <div class="header-logo">
+                <div class="logo-box">🛡️</div>
+                <h1 style="font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em;">AGGREGATOR-EYE 资产测绘系统</h1>
+            </div>
+            <div style="display: flex; gap: 24px; align-items: center;">
+                <div style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600;">
+                    系统状态: <span style="color: var(--accent-emerald); animation: blink 2s infinite;">● 核心引擎已就绪</span>
+                </div>
+                <div style="width: 1px; height: 20px; background: var(--border-ui);"></div>
+                <button @click="isDarkMode = !isDarkMode"
+                    style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-ui); color: var(--text-main); padding: 6px 14px; border-radius: 8px; font-size: 0.75rem; font-weight: 600; cursor: pointer; transition: 0.2s;">
+                    {{ isDarkMode ? '🌙 深色模式' : '☀️ 浅色模式' }}
+                </button>
+            </div>
+        </header>
+
+        <!-- 2. Bottom Dashboard -->
+        <div class="bottom-dashboard">
+            <!-- Left Control Console (300px) -->
+            <aside class="left-control-console custom-scrollbar">
+                <div class="console-group">
+                    <div class="console-label">采集维度</div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;">
+                        <button v-for="m in [{k:'title', n:'网页标题'}, {k:'product', n:'组件识别'}, {k:'device', n:'主机设备'}]" 
+                            :key="m.k"
+                            @click="toggleMode(m.k)"
+                            :style="{
+                                padding: '10px 0',
+                                background: scanModes.includes(m.k) ? 'var(--accent-blue)' : 'rgba(255,255,255,0.05)',
+                                border: '1px solid var(--border-ui)',
+                                borderRadius: '10px',
+                                fontSize: '0.7rem',
+                                color: scanModes.includes(m.k) ? 'white' : 'var(--text-main)',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                transition: '0.3s'
+                            }">
+                            {{ m.n }}
+                        </button>
+                    </div>
+                </div>
+
+                <div class="console-group">
+                    <div class="console-label">扫描参数</div>
+                    <div style="display: flex; flex-direction: column; gap: 10px; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 14px; border: 1px solid var(--border-ui);">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div class="input-unit">
+                                <label style="font-size: 0.6rem; color: var(--text-muted); display: block; margin-bottom: 4px;">最小延迟 (s)</label>
+                                <input type="number" v-model="minSleep" style="width: 100%; background: transparent; border: none; color: var(--text-main); font-size: 0.9rem; font-weight: 700; outline: none;">
+                            </div>
+                            <div class="input-unit">
+                                <label style="font-size: 0.6rem; color: var(--text-muted); display: block; margin-bottom: 4px;">最大延迟 (s)</label>
+                                <input type="number" v-model="maxSleep" style="width: 100%; background: transparent; border: none; color: var(--text-main); font-size: 0.9rem; font-weight: 700; outline: none;">
+                            </div>
+                        </div>
+                        <div class="input-unit">
+                            <label style="font-size: 0.6rem; color: var(--text-muted); display: block; margin-bottom: 4px;">API 检索上限</label>
+                            <input type="number" v-model="apiLimit" style="width: 100%; background: transparent; border: none; color: var(--text-main); font-size: 0.9rem; font-weight: 700; outline: none;">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="console-group">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px;">
+                        <div class="console-label">测绘载荷</div>
+                        <div style="display:flex; gap:4px;">
+                            <button @click="inputMode = 'file'" :style="{background: inputMode === 'file' ? 'var(--accent-blue)' : 'rgba(255,255,255,0.05)', color: inputMode === 'file' ? '#fff' : 'var(--text-muted)', border: '1px solid var(--border-ui)', borderRadius: '4px', padding: '2px 8px', fontSize: '0.65rem', cursor: 'pointer'}">文件</button>
+                            <button @click="inputMode = 'text'" :style="{background: inputMode === 'text' ? 'var(--accent-blue)' : 'rgba(255,255,255,0.05)', color: inputMode === 'text' ? '#fff' : 'var(--text-muted)', border: '1px solid var(--border-ui)', borderRadius: '4px', padding: '2px 8px', fontSize: '0.65rem', cursor: 'pointer'}">文本</button>
+                        </div>
+                    </div>
+
+                    <div v-show="inputMode === 'file'" style="position: relative; overflow: hidden; border: 1px dashed var(--border-ui); border-radius: 12px; padding: 20px; text-align: center; cursor: pointer; transition: all 0.3s ease; background: rgba(0,0,0,0.02);"
+                         onmouseover="this.style.borderColor='var(--accent-blue)';this.style.background='rgba(0,122,255,0.05)'" 
+                         onmouseout="this.style.borderColor='var(--border-ui)';this.style.background='rgba(0,0,0,0.02)'">
+                        <input type="file" ref="scanFile" @change="handleFileChange" accept=".xls,.xlsx,.csv,.txt" style="position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; height: 100%; width: 100%;">
+                        <div v-if="selectedFileName" style="color: var(--accent-blue); font-size: 0.8rem; font-weight: 700;">
+                            📄 {{ selectedFileName }}
+                        </div>
+                        <div v-else style="font-size: 0.8rem; color: var(--accent-blue);">
+                            📁 点击上传离线载荷 (.xlsx / .txt)
+                        </div>
+                    </div>
+
+                    <div v-show="inputMode === 'text'">
+                        <textarea v-model="companiesText" placeholder="每行一个目标，例如：&#10;深圳市腾讯计算机系统有限公司&#10;example.com" 
+                                  style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border-ui); border-radius: 12px; color: var(--text-main); font-size: 0.8rem; padding: 12px; resize: vertical; height: 120px; outline: none;"></textarea>
+                    </div>
+
+                    <input type="text" v-model="customName" placeholder="渗透序列代号 (可选)..." style="width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--border-ui); border-radius: 10px; padding: 10px 14px; color: var(--text-main); font-size: 0.8rem; margin-top: 8px; outline: none;">
+                    
+                    <div style="display: flex; gap: 8px; margin-top: 8px;">
+                        <button v-if="!isRunning" class="btn-primary" @click="startTask" style="flex: 1; padding: 14px; background: var(--accent-blue); border: none; border-radius: 12px; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer; box-shadow: 0 8px 20px rgba(10, 132, 255, 0.3);">🚀 启动渗透序列</button>
+                        <template v-else>
+                            <button @click="togglePause" style="flex: 1; padding: 14px; background: var(--accent-purple); border: none; border-radius: 12px; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer;">{{ isPaused ? '▶️ 继续' : '⏸️ 挂起' }}</button>
+                            <button @click="stopTask" style="width: 60px; padding: 14px; background: #ff3b30; border: none; border-radius: 12px; color: white; font-weight: 700; font-size: 0.85rem; cursor: pointer;">终止</button>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="console-group" style="margin-top: auto;">
+                    <div class="console-label">核心引擎配置</div>
+                    <button @click="configDrawerOpen = true" style="width: 100%; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-ui); border-radius: 12px; color: var(--text-main); font-size: 0.75rem; font-weight: 600; margin-bottom: 10px; cursor: pointer;">⚙️ 启发式规则编辑器</button>
+                    <div style="padding: 16px; background: rgba(48, 209, 88, 0.04); border-radius: 14px; border: 1px dashed rgba(48, 209, 88, 0.3); text-align: center; cursor: pointer;" @click="$refs.importFile.click()">
+                        <input type="file" ref="importFile" @change="importData" style="display: none;">
+                        <div style="color: var(--accent-emerald); font-size: 0.75rem; font-weight: 700;">📊 导入离线数据矩阵</div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Right Main Workspace -->
+            <main class="right-main-workspace">
+                <!-- 3. Top Data Canvas (65%) -->
+                <section class="top-data-canvas custom-scrollbar">
+                    <div class="stat-card-row">
+                        <div class="stat-capsule" style="border-left: 4px solid var(--accent-purple);">
+                            <div>
+                                <h4>网页标题</h4>
+                                <h2>{{ (allData['__GLOBAL__']?.title || []).length }}</h2>
+                            </div>
+                            <span style="font-size: 1.5rem; opacity: 0.5;">🏷️</span>
+                        </div>
+                        <div class="stat-capsule" style="border-left: 4px solid var(--accent-emerald);">
+                            <div>
+                                <h4>应用堆栈</h4>
+                                <h2>{{ (allData['__GLOBAL__']?.product || []).length }}</h2>
+                            </div>
+                            <span style="font-size: 1.5rem; opacity: 0.5;">🧩</span>
+                        </div>
+                        <div class="stat-capsule" style="border-left: 4px solid var(--accent-blue);">
+                            <div>
+                                <h4>网络节点</h4>
+                                <h2>{{ (allData['__GLOBAL__']?.device || []).length }}</h2>
+                            </div>
+                            <span style="font-size: 1.5rem; opacity: 0.5;">🖥️</span>
+                        </div>
+                    </div>
+
+                    <div class="data-grid">
+                        <stats-panel title="标题情报库" icon="🏷️" theme="theme-purple"
+                            :data-list="currentTitleList" @toast="showToast"></stats-panel>
+                        <stats-panel title="应用组件识别" icon="🧩" theme="theme-emerald"
+                            :data-list="currentProductList" @toast="showToast"></stats-panel>
+                        <stats-panel title="主机架构分析" icon="🖥️" theme="theme-blue"
+                            :data-list="currentDeviceList" @toast="showToast"></stats-panel>
+                    </div>
+                </section>
+
+                <!-- 4. Bottom Log Terminal (35%) -->
+                <footer class="bottom-log-terminal">
+                    <div class="terminal-header">
+                        <div style="display: flex; gap: 8px;">
+                            <div class="mac-dot r"></div>
+                            <div class="mac-dot y"></div>
+                            <div class="mac-dot g"></div>
+                        </div>
+                        <div
+                            style="font-size: 0.6rem; font-weight: 800; color: rgba(255,255,255,0.4); letter-spacing: 0.6em; text-transform: uppercase;">
+                            实时情报流数据监测</div>
+                        <div style="width: 40px;"></div>
+                    </div>
+                    <div class="terminal-body custom-scrollbar" ref="logBox">
+                        <div v-for="(log, i) in logs" :key="i" :style="{color: log.color, marginBottom: '6px'}">
+                            <span style="opacity: 0.3; margin-right: 12px; font-weight: 400;">[{{ log.time }}]</span> {{
+                            log.msg }}
+                        </div>
+                    </div>
+                </footer>
+            </main>
+        </div>
+
+        <div class="toast-container">
+            <transition-group name="toast">
+                <div v-for="t in toasts" :key="t.id" class="toast">
+                    <span style="font-size: 1.1rem;">{{ t.icon }}</span>
+                    <span>{{ t.msg }}</span>
+                </div>
+            </transition-group>
+        </div>
+
+        <!-- 5. Configuration Drawer -->
+        <transition name="drawer">
+            <div v-if="configDrawerOpen" class="config-drawer-overlay" @click.self="configDrawerOpen = false">
+                <div class="config-drawer-content">
+                    <div class="drawer-header">
+                        <h2>情报启发式规则微调</h2>
+                        <button @click="configDrawerOpen = false" style="background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+                    <div class="drawer-body custom-scrollbar">
+                        <div class="config-section">
+                            <label>噪音过滤清单 (NOISE_WORDS) — 每行一个</label>
+                            <textarea v-model="noiseWordsText" placeholder="输入需要忽略的关键词..."></textarea>
+                        </div>
+                        <div class="config-section">
+                            <label>资产匹配逻辑 (MATCH_RULES) — 每行一个</label>
+                            <textarea v-model="matchRulesText" placeholder="admin&#10;login||signin"></textarea>
+                        </div>
+                        <div class="config-section">
+                            <label>调度代理隧道 (Proxy URL)</label>
+                            <input type="text" v-model="proxyUrl" placeholder="http://127.0.0.1:8080">
+                        </div>
+                        <button @click="saveConfig" class="btn-save" style="display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <span v-if="configSaved">✅ 配置已实时生效</span>
+                            <span v-else>立即部署并应用配置</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </transition>
+    </div>
+    {% endraw %}
+
+    <!-- Template for Stats Panel -->
+    {% raw %}
+    <script type="text/x-template" id="stats-panel-template">
+        <div class="stat-panel" :class="theme">
+            <div class="stat-header">
+                <h3><span>{{ icon }}</span> {{ title }}</h3>
+                <span style="font-size: 0.65rem; background:rgba(0,0,0,0.1); padding:3px 10px; border-radius:20px; font-weight: 700;">{{ filteredCount }} 命中</span>
+            </div>
+            <div class="stat-tools" style="padding: 10px 16px; border-bottom: 1px solid var(--border-ui); display: flex; flex-direction: column; gap: 8px;">
+                <input type="text" v-model="filterText" placeholder="搜索关键词或支持 !(IIS) / login&&admin..." style="width: 100%; background: rgba(0,0,0,0.03); border: 1px solid var(--border-ui); border-radius: 8px; padding: 6px 12px; color: inherit; font-size: 0.8rem; outline: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center;" v-if="dataList.length > 0">
+                    <button @click="isDesc = !isDesc" style="background: rgba(255,255,255,0.05); border: 1px solid var(--border-ui); border-radius: 6px; padding: 2px 8px; font-size: 0.65rem; color: var(--text-main); cursor: pointer;">
+                        {{ isDesc ? '⬇️ 降序排列' : '⬆️ 升序排列' }}
+                    </button>
+                    <div style="display: flex; align-items: center; gap: 6px; font-size: 0.65rem; color: var(--text-muted);">
+                        <span>显示前</span>
+                        <input type="number" v-model.number="displayLimit" style="width: 40px; background: transparent; border: none; border-bottom: 1px solid var(--border-ui); color: var(--accent-blue); font-weight: 700; text-align: center; outline: none;">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="stat-list custom-scrollbar">
+                <template v-if="processedList.length > 0">
+                    <div v-for="(item, idx) in processedList" :key="idx" class="list-item" @click="handleLeftClick(item)" @contextmenu.prevent="handleRightClick(item)">
+                        <div class="list-content">
+                            <span class="item-keyword">{{ item.keyword }}</span>
+                            <span class="item-name">{{ item.name }}</span>
+                        </div>
+                        <div class="item-count-wrapper">
+                            <div class="count-bar-bg">
+                                <div class="count-bar-fill" :style="`width: ${getPercent(item.count)}%`"></div>
+                            </div>
+                            <div class="item-count">{{ item.count }}</div>
+                        </div>
+                    </div>
+                </template>
+                <template v-else>
+                    <div class="empty-state">
+                        <span style="font-size: 2rem; margin-bottom: 10px; opacity:0.1;">🔭</span>
+                        <p style="font-size: 0.8rem; font-weight: 500;">暂无测绘信号</p>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </script>
+    {% endraw %}
+
+    <script>
+        const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
+        const socket = io();
+
+        const StatsPanel = {
+            template: '#stats-panel-template',
+            props: ['title', 'icon', 'theme', 'dataList'],
+            emits: ['toast'],
+            setup(props, { emit }) {
+                const filterText = ref('');
+                const displayLimit = ref(500);
+
+                const checkAdvancedMatch = (text, query) => {
+                    if (!query) return true;
+                    text = text.toLowerCase();
+                    query = query.toLowerCase().trim();
+
+                    // 1. 处理黑名单逻辑 !(a or b)
+                    const blacklistMatch = query.match(/!\((.*?)\)/);
+                    if (blacklistMatch) {
+                        const blackContent = blacklistMatch[1];
+                        const blackKeywords = blackContent.split(/\|\|| or /).map(k => k.trim()).filter(k => k);
+                        if (blackKeywords.some(bk => text.includes(bk))) return false;
+                        // 移除黑名单部分，处理剩余的检索词
+                        query = query.replace(blacklistMatch[0], '').replace(/^\s*(and|&&)\s*/, '').trim();
+                        if (!query) return true;
+                    }
+
+                    // 2. 处理多关键词逻辑 (a or b) and (c or d)
+                    // 简单的逻辑拆分：支持 "keyword1 and keyword2" 或 "k1 || k2"
+                    const andGroups = query.split(/&&| and /).map(g => g.trim()).filter(g => g);
+                    
+                    return andGroups.every(group => {
+                        // 每个组内只要有一个满足 (OR 逻辑)
+                        const orKeywords = group.split(/\|\|| or /).map(k => k.trim()).filter(k => k);
+                        return orKeywords.some(ok => text.includes(ok));
+                    });
+                };
+
+                const filteredList = computed(() => {
+                    let list = props.dataList || [];
+                    if (!filterText.value) return list;
+                    return list.filter(item => checkAdvancedMatch((item.name + " " + item.keyword), filterText.value));
+                });
+
+                const isDesc = ref(true);
+                const processedList = computed(() => {
+                    let list = [...filteredList.value];
+                    list.sort((a, b) => isDesc.value ? b.count - a.count : a.count - b.count);
+                    return list.slice(0, displayLimit.value);
+                });
+
+                const filteredCount = computed(() => filteredList.value.length);
+                const maxCount = computed(() => filteredList.value.length === 0 ? 1 : Math.max(...filteredList.value.map(i => i.count), 1));
+                const getPercent = (c) => (c / maxCount.value * 100).toFixed(1);
+
+                const handleLeftClick = (item) => {
+                    navigator.clipboard.writeText(item.name).then(() => {
+                        emit('toast', { msg: `已复制: ${item.name}`, icon: '📋' });
+                    });
+                };
+                const handleRightClick = (item) => {
+                    navigator.clipboard.writeText(item.keyword).then(() => {
+                        emit('toast', { msg: `已复制关键字: ${item.keyword}`, icon: '🏷️' });
+                    });
+                };
+
+                return { filterText, processedList, filteredCount, getPercent, handleLeftClick, handleRightClick, isDesc, displayLimit };
+            }
+        };
+
+        createApp({
+            components: { StatsPanel },
+            setup() {
+                const scanModes = ref(['title', 'product', 'device']);
+                const minSleep = ref(3);
+                const maxSleep = ref(10);
+                const apiLimit = ref(20);
+                const customName = ref('');
+                const proxyUrl = ref('');
+                const inputMode = ref('file');
+                const companiesText = ref('');
+                const configDrawerOpen = ref(false);
+                const noiseWordsText = ref('');
+                const matchRulesText = ref('');
+                const configSaved = ref(false);
+                const isRunning = ref(false);
+                const isPaused = ref(false);
+                const isImporting = ref(false);
+                const progress = ref(0);
+                const logs = ref([{ time: '系统', msg: '测绘引擎核心已启动，系统运行正常。', color: 'rgba(255,255,255,0.4)' }]);
+                const toasts = ref([]);
+                const scanFile = ref(null);
+                const importFile = ref(null);
+                const logBox = ref(null);
+                const selectedFileName = ref('');
+                const allData = ref({ '__GLOBAL__': { device: [], product: [], title: [] } });
+                const isDarkMode = ref(true);
+
+                const showToast = (toastObj) => {
+                    const id = Date.now();
+                    toasts.value.push({ id, ...toastObj });
+                    setTimeout(() => { toasts.value = toasts.value.filter(t => t.id !== id); }, 3000);
+                };
+
+                const currentDeviceList = computed(() => (allData.value['__GLOBAL__'] || {}).device || []);
+                const currentProductList = computed(() => (allData.value['__GLOBAL__'] || {}).product || []);
+                const currentTitleList = computed(() => (allData.value['__GLOBAL__'] || {}).title || []);
+
+                const loadConfig = async () => {
+                    try {
+                        const res = await fetch('/get_config');
+                        const data = await res.json();
+                        noiseWordsText.value = (data.noise_words || []).join('\n');
+                        matchRulesText.value = (data.match_rules || []).join('\n');
+                    } catch(e) { console.error('loadConfig failed', e); }
+                };
+
+                const saveConfig = async () => {
+                    const noise_words = noiseWordsText.value.split('\n').map(s => s.trim()).filter(Boolean);
+                    const match_rules = matchRulesText.value.split('\n').map(s => s.trim()).filter(Boolean);
+                    try {
+                        const res = await fetch('/save_config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ noise_words, match_rules })
+                        });
+                        const data = await res.json();
+                        if (data.status === 'ok') {
+                            configSaved.value = true;
+                            showToast({ msg: '安全配置已生效并持久化', icon: '🛡️' });
+                            setTimeout(() => configSaved.value = false, 3000);
+                        }
+                    } catch(e) { showToast({ msg: '部署失败: ' + e.message, icon: '❌' }); }
+                };
+
+                onMounted(() => {
+                    loadConfig();
+                    socket.on('log', (d) => {
+                        logs.value.push(d); if (logs.value.length > 500) logs.value.shift();
+                        nextTick(() => { if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight; });
+                    });
+                    socket.on('progress', (d) => progress.value = d.val);
+                    socket.on('status', (d) => { isRunning.value = d.running; isPaused.value = d.paused; });
+                    socket.on('new_data', (d) => {
+                        const list = allData.value['__GLOBAL__'][d.type];
+                        if (list) {
+                            const exist = list.find(i => i.name === d.name && i.keyword === d.keyword);
+                            if (exist) exist.count += (d.count || 1);
+                            else list.push({ keyword: d.keyword, name: d.name, count: (d.count || 1) });
+                        }
+                    });
+
+                    socket.on('bulk_data', (items) => {
+                        items.forEach(d => {
+                            const list = allData.value['__GLOBAL__'][d.type];
+                            if (list) {
+                                const exist = list.find(i => i.name === d.name && i.keyword === d.keyword);
+                                if (exist) exist.count += (d.count || 1);
+                                else list.push({ keyword: d.keyword, name: d.name, count: (d.count || 1) });
+                            }
+                        });
+                    });
+
+                    watch(isDarkMode, (val) => {
+                        if (!val) document.documentElement.classList.add('light-theme');
+                        else document.documentElement.classList.remove('light-theme');
+                    }, { immediate: true });
+                });
+
+                const startTask = async () => {
+                    const isFile = (inputMode.value === 'file');
+                    if (isFile && !scanFile.value.files[0]) return showToast({ msg: '尚未上传载荷文件', icon: '⚠️' });
+                    if (!isFile && !companiesText.value.trim()) return showToast({ msg: '尚未注入渗透目标', icon: '⚠️' });
+
+                    const fd = new FormData();
+                    if (isFile) fd.append('file', scanFile.value.files[0]);
+                    else fd.append('companies_text', companiesText.value.trim());
+
+                    fd.append('format', 'xlsx');
+                    scanModes.value.forEach(m => fd.append('modes[]', m));
+                    fd.append('min_sleep', minSleep.value);
+                    fd.append('max_sleep', maxSleep.value);
+                    fd.append('api_limit', apiLimit.value);
+                    fd.append('custom_filename', customName.value);
+                    fd.append('proxy_url', proxyUrl.value);
+
+                    clearData(); 
+                    isRunning.value = true;
+                    
+                    try { 
+                        const res = await fetch('/start', { method: 'POST', body: fd }); 
+                        const data = await res.json();
+                        if (data.status !== 'ok') {
+                            showToast({ msg: data.msg || '启动失败', icon: '❌' });
+                            isRunning.value = false;
+                        }
+                    } catch (e) { 
+                        showToast({ msg: '核心链路启动失败', icon: '❌' }); 
+                        isRunning.value = false; 
+                    }
+                };
+
+                const togglePause = async () => {
+                    if (isPaused.value) await fetch('/resume', { method: 'POST' });
+                    else await fetch('/pause', { method: 'POST' });
+                };
+
+                const stopTask = async () => await fetch('/stop', { method: 'POST' });
+
+                const clearData = () => {
+                    allData.value = { '__GLOBAL__': { device: [], product: [], title: [] } };
+                    logs.value = [];
+                    progress.value = 0;
+                };
+
+                const importData = async () => {
+                    if (!importFile.value.files[0]) return;
+                    const fd = new FormData();
+                    fd.append('file', importFile.value.files[0]);
+                    isImporting.value = true;
+                    try {
+                        const res = await fetch('/import_data', { method: 'POST', body: fd });
+                        const data = await res.json();
+                        if (data.status === 'ok' && data.data) {
+                            allData.value = data.data;
+                            const stats = data.stats || {};
+                            const unique = stats.unique_type_counts || {};
+                            showToast({ msg: `导入成功: T${unique.title || 0} / P${unique.product || 0} / D${unique.device || 0}`, icon: '[OK]' });
+                        } else {
+                            showToast({ msg: data.msg || '导入失败', icon: '[X]' });
+                        }
+                    } catch (e) { showToast({ msg: '导入失败', icon: '[X]' }); }
+                    finally { isImporting.value = false; }
+                };
+
+                const toggleMode = (m) => {
+                    const idx = scanModes.value.indexOf(m);
+                    if(idx > -1) scanModes.value.splice(idx, 1);
+                    else scanModes.value.push(m);
+                };
+
+                const handleFileChange = (e) => {
+                    const file = e.target.files[0];
+                    selectedFileName.value = file ? file.name : '';
+                };
+
+                return {
+                    allData, scanModes, isRunning, isPaused, isImporting, progress, logs, scanFile, importFile, logBox,
+                    selectedFileName, handleFileChange,
+                    toasts, showToast,
+                    currentDeviceList, currentProductList, currentTitleList,
+                    minSleep, maxSleep, apiLimit, customName, proxyUrl,
+                    inputMode, companiesText, isDarkMode,
+                    configDrawerOpen, noiseWordsText, matchRulesText, configSaved,
+                    startTask, importData, toggleMode, togglePause, stopTask, clearData, saveConfig
+                };
+            }
+        }).mount('#app');
+    </script>
+
+</html>
